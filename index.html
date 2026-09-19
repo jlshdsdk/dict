@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>有道词库 · 在线背单词</title>
+<meta name="description" content="基于 kajweb/dict 有道词库的在线背单词网站:四六级、考研、雅思、托福、GRE 词书,支持查词、生词本、发音">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+</head>
+<body>
+<header id="topbar">
+  <button id="btn-menu" class="icon-btn" title="选择词书">☰</button>
+  <div id="book-title" title="点击切换词书">加载中…</div>
+  <div class="spacer"></div>
+  <button id="btn-audio" class="icon-btn" title="发音">🔊</button>
+  <nav id="tabs">
+    <button data-view="study" class="active">学习</button>
+    <button data-view="search">查词</button>
+    <button data-view="starred">生词本 <span id="star-count">0</span></button>
+  </nav>
+</header>
+
+<aside id="drawer" class="hidden">
+  <div class="drawer-head">
+    <span>选择词书</span>
+    <button id="btn-close-drawer" class="icon-btn">✕</button>
+  </div>
+  <input id="book-filter" placeholder="搜索词书名称…">
+  <div id="book-list"></div>
+</aside>
+<div id="mask" class="hidden"></div>
+
+<main id="main">
+  <!-- 学习视图 -->
+  <section id="view-study" class="view">
+    <div id="study-progress"></div>
+    <div id="card" class="card">
+      <div class="card-front">
+        <div id="word-head"></div>
+        <div id="word-phones">
+          <button class="phone-btn" data-v="2">美 <span id="word-us"></span></button>
+          <button class="phone-btn" data-v="1">英 <span id="word-uk"></span></button>
+        </div>
+        <div class="flip-hint">点击卡片查看释义</div>
+      </div>
+      <div class="card-back hidden">
+        <div id="word-trans"></div>
+        <div id="word-detail"></div>
+      </div>
+    </div>
+    <div id="study-actions">
+      <button id="btn-unknown" class="act-btn unknown">不认识</button>
+      <button id="btn-star" class="act-btn star" title="加入生词本">☆</button>
+      <button id="btn-known" class="act-btn known">认识</button>
+    </div>
+    <div id="study-tools">
+      <label><input type="checkbox" id="opt-shuffle"> 乱序</label>
+      <label><input type="checkbox" id="opt-unknown-only"> 只学生词</label>
+      <button id="btn-reset-progress" class="link-btn">重置本书进度</button>
+    </div>
+    <div id="study-done" class="hidden">
+      <p>本书已学完一轮 🎉</p>
+      <button id="btn-restart" class="act-btn known">再学一遍生词</button>
+    </div>
+  </section>
+
+  <!-- 查词视图 -->
+  <section id="view-search" class="view hidden">
+    <input id="search-input" placeholder="输入单词或释义关键词…" autocomplete="off">
+    <div id="search-hint" class="hint">在当前词书中搜索,结果按词头排序</div>
+    <div id="search-results"></div>
+  </section>
+
+  <!-- 生词本视图 -->
+  <section id="view-starred" class="view hidden">
+    <div id="starred-actions">
+      <button id="btn-study-starred" class="act-btn known">背生词本</button>
+      <button id="btn-clear-starred" class="link-btn">清空生词本</button>
+    </div>
+    <div id="starred-list"></div>
+  </section>
+</main>
+
+<!-- 词条详情弹层(查词/生词本共用) -->
+<div id="detail-modal" class="hidden">
+  <div id="detail-card" class="card">
+    <button id="btn-close-detail" class="icon-btn detail-close">✕</button>
+    <div id="detail-content"></div>
+  </div>
+</div>
+
+<footer id="foot">
+  数据来源 <a href="https://github.com/kajweb/dict" target="_blank" rel="noopener">kajweb/dict</a>(有道背单词词库)
+  · 进度保存在本设备浏览器中
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
