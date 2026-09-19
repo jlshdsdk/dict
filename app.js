@@ -265,7 +265,7 @@ function openDrawer() { $("#drawer").classList.remove("hidden"); $("#mask").clas
 function closeDrawer() { $("#drawer").classList.add("hidden"); $("#mask").classList.add("hidden"); }
 
 /* ---------- 加载与切换词书 ---------- */
-async function selectBook(id, keepProgress) {
+async function selectBook(id) {
   saveProgress();
   $("#book-title").textContent = "加载中…";
   try {
@@ -284,8 +284,7 @@ async function selectBook(id, keepProgress) {
   $("#book-title").textContent = bookMeta.t;
 
   tempSession = null;
-  const p = store.get(pkey(id), null);
-  const saved = keepProgress ? p : null;
+  const saved = store.get(pkey(id), null);
   if (saved && saved.order && saved.order.length === book.words.length) {
     order = saved.order; cur = Math.min(saved.cur || 0, saved.order.length - 1);
     known = new Set(saved.known || []); unknown = new Set(saved.unknown || []);
