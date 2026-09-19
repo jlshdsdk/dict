@@ -190,6 +190,63 @@ a { color: var(--primary); }
 .detail-phones { color: var(--fg-soft); font-size: 14px; margin: 6px 0 4px; }
 .detail-phones .phone-btn { font-size: 14px; }
 
+/* ---- 账号 / 云同步 ---- */
+#sync-state { font-size: 12px; color: var(--fg-soft); white-space: nowrap; }
+#user-area { position: relative; }
+.user-btn {
+  background: var(--primary-soft); color: var(--primary);
+  border: none; border-radius: 10px; padding: 7px 14px;
+  font-size: 13px; font-weight: 600; max-width: 160px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#user-menu {
+  position: absolute; right: 0; top: calc(100% + 8px);
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow);
+  min-width: 180px; padding: 6px; z-index: 60;
+}
+#user-email {
+  padding: 8px 10px; font-size: 12px; color: var(--fg-soft);
+  border-bottom: 1px solid var(--border); margin-bottom: 4px;
+  word-break: break-all;
+}
+.menu-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--fg);
+  padding: 9px 10px; border-radius: 8px; font-size: 14px;
+}
+.menu-item:hover { background: var(--bg); }
+
+#auth-modal, #admin-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 55;
+  display: flex; align-items: center; justify-content: center; padding: 18px;
+}
+#auth-card, #admin-card {
+  max-width: 380px; width: 100%; max-height: 85vh; overflow-y: auto;
+  cursor: default; padding: 26px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+#admin-card { max-width: 720px; }
+.auth-title { font-size: 22px; font-weight: 700; }
+.auth-sub { font-size: 13px; color: var(--fg-soft); }
+#auth-email, #auth-pass {
+  padding: 12px 14px; font-size: 15px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg); color: var(--fg); outline: none;
+}
+#auth-email:focus, #auth-pass:focus { border-color: var(--primary); }
+.auth-err { color: var(--red); font-size: 13px; min-height: 16px; }
+.auth-btns { display: flex; gap: 10px; }
+.auth-btns .act-btn { flex: 1; padding: 12px; }
+#auth-switch { align-self: center; }
+
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th, .admin-table td {
+  text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+  word-break: break-all;
+}
+.admin-table th { color: var(--fg-soft); font-weight: 600; font-size: 12px; }
+
 /* ---- 页脚 ---- */
 #foot {
   text-align: center; font-size: 12px; color: var(--fg-soft);

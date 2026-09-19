@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>有道词库 · 在线背单词</title>
 <meta name="description" content="基于 kajweb/dict 有道词库的在线背单词网站:四六级、考研、雅思、托福、GRE 词书,支持查词、生词本、发音">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
 </head>
 <body>
@@ -13,7 +13,17 @@
   <button id="btn-menu" class="icon-btn" title="选择词书">☰</button>
   <div id="book-title" title="点击切换词书">加载中…</div>
   <div class="spacer"></div>
+  <span id="sync-state" class="hidden" title="云同步状态"></span>
   <button id="btn-audio" class="icon-btn" title="发音">🔊</button>
+  <div id="user-area">
+    <button id="btn-user" class="user-btn" title="登录/注册,多设备同步进度">登录</button>
+    <div id="user-menu" class="hidden">
+      <div id="user-email"></div>
+      <button id="menu-login" class="menu-item">登录 / 注册</button>
+      <button id="menu-admin" class="menu-item hidden">👑 用户管理</button>
+      <button id="menu-logout" class="menu-item hidden">退出登录</button>
+    </div>
+  </div>
   <nav id="tabs">
     <button data-view="study" class="active">学习</button>
     <button data-view="search">查词</button>
@@ -90,11 +100,38 @@
   </div>
 </div>
 
+<!-- 登录/注册弹层 -->
+<div id="auth-modal" class="hidden">
+  <div id="auth-card" class="card">
+    <button id="btn-close-auth" class="icon-btn detail-close">✕</button>
+    <div id="auth-title" class="auth-title">登录</div>
+    <div class="auth-sub">登录后学习进度与生词本在所有设备间同步</div>
+    <input id="auth-email" type="email" placeholder="邮箱" autocomplete="email">
+    <input id="auth-pass" type="password" placeholder="密码(至少 6 位)" autocomplete="current-password">
+    <div id="auth-err" class="auth-err"></div>
+    <div class="auth-btns">
+      <button id="btn-do-login" class="act-btn known">登录</button>
+      <button id="btn-do-signup" class="act-btn known hidden">注册</button>
+    </div>
+    <button id="auth-switch" class="link-btn" data-mode="signup">没有账号?注册一个</button>
+  </div>
+</div>
+
+<!-- 管理员面板 -->
+<div id="admin-modal" class="hidden">
+  <div id="admin-card" class="card">
+    <button id="btn-close-admin" class="icon-btn detail-close">✕</button>
+    <div class="auth-title">用户管理</div>
+    <div class="auth-sub">所有注册用户的学习数据概览(仅管理员可见)</div>
+    <div id="admin-list"></div>
+  </div>
+</div>
+
 <footer id="foot">
   数据来源 <a href="https://github.com/kajweb/dict" target="_blank" rel="noopener">kajweb/dict</a>(有道背单词词库)
-  · 进度保存在本设备浏览器中
+  · <span id="foot-sync">进度保存在本设备浏览器中,登录后可多设备同步</span>
 </footer>
 
-<script src="app.js"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

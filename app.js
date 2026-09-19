@@ -1,6 +1,6 @@
 /* 有道词库在线背单词 — 纯静态前端
    数据: data/manifest.json + data/books/<id>.json (按需加载)
-   进度: localStorage (设备本地) */
+   进度: localStorage + Supabase 云同步(登录后多设备共用) */
 "use strict";
 
 const $ = s => document.querySelector(s);
@@ -15,8 +15,181 @@ const store = {
 const pkey = id => "ydict.progress." + id;
 
 let starred = store.get("ydict.starred", {}); // {word: {b: bookId, t: ts}}
-function saveStarred() { store.set("ydict.starred", starred); updateStarCount(); }
+function saveStarred() { store.set("ydict.starred", starred); updateStarCount(); queuePush("starred", ""); }
 function updateStarCount() { $("#star-count").textContent = Object.keys(starred).length; }
+
+/* ---------- 云同步 (Supabase) ---------- */
+const SB = {
+  url: "https://qvemohfojzawpnleyjsb.supabase.co",
+  key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2ZW1vaGZvanphd3BubGV5anNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxOTg1ODUsImV4cCI6MjEwNDc3NDU4NX0.NjN0Yi_XGWoZKuzBGhsxlZwS6gjx9xZdL_RazK3k1q8",
+};
+const auth = { session: null, isAdmin: false };
+
+function saveSession() { if (auth.session) store.set("ydict.session", auth.session); else store.del("ydict.session"); }
+function setEmail() { $("#user-email").textContent = auth.session ? auth.session.user.email : ""; }
+
+function setSyncState(s) {
+  const el = $("#sync-state");
+  if (!auth.session) { el.textContent = ""; el.title = ""; return; }
+  if (s === "syncing") { el.textContent = "⟳ 同步中"; }
+  else if (s === "ok") { el.textContent = "✓ 已同步"; }
+  else if (s === "error") { el.textContent = "⚠ 同步失败"; }
+  else if (s === "local") { el.textContent = "仅本机"; }
+}
+
+async function sbAuth(path, body) {
+  const r = await fetch(SB.url + path, {
+    method: "POST",
+    headers: { "apikey": SB.key, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error_description || d.msg || d.error || ("HTTP " + r.status));
+  return d;
+}
+async function refreshSession() {
+  try {
+    const d = await sbAuth("/auth/v1/token?grant_type=refresh_token", { refresh_token: auth.session.refresh_token });
+    auth.session = { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: d.expires_at, user: d.user };
+    saveSession();
+  } catch { doLogout(); }
+}
+async function ensureToken() {
+  if (!auth.session) return;
+  if (Date.now() < auth.session.expires_at * 1000 - 60000) return;
+  await refreshSession();
+}
+async function sbApi(path, opts = {}, retry = true) {
+  await ensureToken();
+  const r = await fetch(SB.url + path, {
+    ...opts,
+    headers: {
+      "apikey": SB.key,
+      "Authorization": "Bearer " + auth.session.access_token,
+      "Content-Type": "application/json",
+      ...(opts.headers || {}),
+    },
+  });
+  if (r.status === 401 && retry) {
+    await refreshSession();
+    if (auth.session) return sbApi(path, opts, false);
+  }
+  if (!r.ok) throw new Error("SB " + r.status + " " + path);
+  return r;
+}
+
+async function doSignup(email, pw) {
+  const d = await sbAuth("/auth/v1/signup", { email, password: pw });
+  if (!d.access_token) throw new Error("需要邮箱确认,请查收邮件后再登录");
+  auth.session = { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: d.expires_at, user: d.user };
+}
+async function doLogin(email, pw) {
+  const d = await sbAuth("/auth/v1/token?grant_type=password", { email, password: pw });
+  auth.session = { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: d.expires_at, user: d.user };
+}
+function doLogout(push = true) {
+  if (auth.session && push) {
+    const t = auth.session.access_token;
+    fetch(SB.url + "/auth/v1/logout", { method: "POST", headers: { "apikey": SB.key, "Authorization": "Bearer " + t } }).catch(() => {});
+  }
+  auth.session = null; auth.isAdmin = false;
+  saveSession(); renderAuthUI();
+}
+async function loadProfile() {
+  try {
+    const r = await sbApi("/rest/v1/profiles?select=is_admin&id=eq." + auth.session.user.id);
+    const d = await r.json();
+    auth.isAdmin = !!(d[0] && d[0].is_admin);
+  } catch { auth.isAdmin = false; }
+}
+
+/* 推送(防抖): 学习中频繁点按钮,2.5s 内只发一次 */
+const pushTimers = {};
+function queuePush(kind, id) {
+  if (!auth.session) return;
+  clearTimeout(pushTimers[kind + "." + id]);
+  pushTimers[kind + "." + id] = setTimeout(() => pushNow(kind, id), 2500);
+}
+async function pushNow(kind, id) {
+  if (!auth.session) return;
+  try {
+    setSyncState("syncing");
+    if (kind === "progress") {
+      const data = store.get(pkey(id), null);
+      if (!data) return;
+      await sbApi("/rest/v1/user_progress?on_conflict=user_id,book_id", {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ user_id: auth.session.user.id, book_id: id, data }),
+      });
+    } else {
+      await sbApi("/rest/v1/user_starred?on_conflict=user_id", {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ user_id: auth.session.user.id, starred }),
+      });
+    }
+    setSyncState("ok");
+  } catch (e) { console.warn(e); setSyncState("error"); }
+}
+
+/* 登录后:云端拉取 + 与本地按时间戳合并(双向,新者胜) */
+async function pullMerge() {
+  if (!auth.session) return;
+  try {
+    setSyncState("syncing");
+    const [rp, rs] = await Promise.all([
+      sbApi("/rest/v1/user_progress?select=book_id,data"),
+      sbApi("/rest/v1/user_starred?select=starred"),
+    ]);
+    const cloudP = await rp.json();
+    const cloudS = await rs.json();
+
+    for (const row of cloudP) {
+      const c = row.data || {};
+      const local = store.get(pkey(row.book_id), null);
+      if (!local || (c.at || 0) > (local.at || 0)) store.set(pkey(row.book_id), c);
+    }
+    const cloudStarred = cloudS.length ? (cloudS[0].starred || {}) : null;
+    if (cloudStarred) {
+      const merged = { ...starred };
+      for (const [w, info] of Object.entries(cloudStarred)) {
+        if (!merged[w] || (info.t || 0) > (merged[w].t || 0)) merged[w] = info;
+      }
+      starred = merged; store.set("ydict.starred", starred); updateStarCount();
+    }
+    /* 本地较新(或云端缺)的词书推上去 */
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k.startsWith("ydict.progress.")) continue;
+      const id = k.slice(15), local = store.get(k, null);
+      if (!local) continue;
+      const crow = cloudP.find(r => r.book_id === id);
+      if (!crow || (local.at || 0) > ((crow.data || {}).at || 0)) queuePush("progress", id);
+    }
+    queuePush("starred", "");
+    setSyncState("ok");
+    reloadCurrentBook();
+  } catch (e) { console.warn(e); setSyncState("error"); }
+}
+/* 合并后如果当前书进度变了,热替换内存中的进度 */
+function reloadCurrentBook() {
+  if (!book || tempSession) return;
+  const p = store.get(pkey(book.id), null);
+  if (p && p.order && p.order.length === book.words.length) {
+    order = p.order; cur = Math.min(p.cur || 0, p.order.length - 1);
+    known = new Set(p.known || []); unknown = new Set(p.unknown || []);
+    renderStudy();
+  }
+}
+
+async function afterLogin() {
+  saveSession(); setEmail();
+  await loadProfile();
+  renderAuthUI();
+  await pullMerge();
+  closeAuthModal();
+}
 
 /* ---------- 状态 ---------- */
 let manifest = null;          // {books:[...]}
@@ -114,20 +287,22 @@ async function selectBook(id, keepProgress) {
   const p = store.get(pkey(id), null);
   const saved = keepProgress ? p : null;
   if (saved && saved.order && saved.order.length === book.words.length) {
-    order = saved.order; cur = saved.cur || 0;
+    order = saved.order; cur = Math.min(saved.cur || 0, saved.order.length - 1);
     known = new Set(saved.known || []); unknown = new Set(saved.unknown || []);
   } else {
     order = shuffle([...book.words.keys()]);
     cur = 0; known = new Set(); unknown = new Set();
-    saveProgress();
+    saveProgress(true);
   }
   renderBookList($("#book-filter").value);
   $("#view-study").classList.remove("hidden");
   if (currentView === "study") renderStudy();
 }
-function saveProgress() {
+function saveProgress(fresh) {
   if (!book) return;
-  store.set(pkey(book.id), { order, cur, known: [...known], unknown: [...unknown] });
+  /* fresh=选书时的空进度初始化,不打时间戳不推送,避免覆盖其他设备的真实进度 */
+  store.set(pkey(book.id), { order, cur, known: [...known], unknown: [...unknown], at: fresh ? 0 : Date.now() });
+  if (!fresh) queuePush("progress", book.id);
 }
 
 /* ---------- 学习视图 ---------- */
@@ -276,6 +451,89 @@ async function studyStarred() {
   renderStudy();
 }
 
+/* ---------- 账号 UI ---------- */
+function renderAuthUI() {
+  const btn = $("#btn-user");
+  if (auth.session) {
+    btn.textContent = auth.session.user.email.split("@")[0];
+    btn.title = auth.session.user.email;
+    $("#menu-login").classList.add("hidden");
+    $("#menu-logout").classList.remove("hidden");
+    $("#menu-admin").classList.toggle("hidden", !auth.isAdmin);
+    $("#sync-state").classList.remove("hidden");
+    setSyncState("local");
+  } else {
+    btn.textContent = "登录";
+    btn.title = "登录/注册,多设备同步进度";
+    $("#menu-login").classList.remove("hidden");
+    $("#menu-logout").classList.add("hidden");
+    $("#menu-admin").classList.add("hidden");
+    $("#user-menu").classList.add("hidden");
+    $("#sync-state").classList.add("hidden");
+    $("#foot-sync").textContent = "进度保存在本设备浏览器中,登录后可多设备同步";
+  }
+  if (auth.session) $("#foot-sync").textContent = "已登录 " + auth.session.user.email + ",进度云端同步";
+}
+function openAuthModal(mode) {
+  $("#user-menu").classList.add("hidden");
+  $("#auth-err").textContent = "";
+  $("#auth-modal").classList.remove("hidden");
+  switchAuthMode(mode || "login");
+}
+function closeAuthModal() { $("#auth-modal").classList.add("hidden"); }
+function switchAuthMode(m) {
+  $("#auth-title").textContent = m === "login" ? "登录" : "注册新账号";
+  $("#btn-do-login").classList.toggle("hidden", m !== "login");
+  $("#btn-do-signup").classList.toggle("hidden", m !== "signup");
+  $("#auth-switch").textContent = m === "login" ? "没有账号?注册一个" : "已有账号?去登录";
+  $("#auth-switch").dataset.mode = m === "login" ? "signup" : "login";
+}
+async function submitAuth(kind) {
+  const email = $("#auth-email").value.trim();
+  const pw = $("#auth-pass").value;
+  const err = $("#auth-err");
+  err.textContent = "";
+  if (!email || !pw) { err.textContent = "请输入邮箱和密码"; return; }
+  try {
+    $("#btn-do-login").disabled = $("#btn-do-signup").disabled = true;
+    if (kind === "login") await doLogin(email, pw);
+    else await doSignup(email, pw);
+    await afterLogin();
+  } catch (e) {
+    err.textContent = String(e.message || e).replace("Email not confirmed", "邮箱未确认");
+  } finally {
+    $("#btn-do-login").disabled = $("#btn-do-signup").disabled = false;
+  }
+}
+
+/* ---------- 管理员面板 ---------- */
+async function openAdminModal() {
+  $("#user-menu").classList.add("hidden");
+  $("#admin-modal").classList.remove("hidden");
+  $("#admin-list").innerHTML = `<div class="hint" style="padding:12px">加载中…</div>`;
+  try {
+    const r = await sbApi("/rest/v1/rpc/admin_list_users", { method: "POST", body: "{}" });
+    const users = await r.json();
+    if (!users.length) { $("#admin-list").innerHTML = `<div class="hint" style="padding:12px">暂无用户</div>`; return; }
+    $("#admin-list").innerHTML =
+      `<table class="admin-table"><tr><th>邮箱</th><th>注册时间</th><th>词书</th><th>生词</th><th>角色</th><th></th></tr>` +
+      users.map(u => `<tr>
+        <td>${esc(u.email || u.user_id)}</td>
+        <td>${esc((u.created_at || "").slice(0, 10))}</td>
+        <td>${u.books || 0}</td>
+        <td>${u.starred_count || 0}</td>
+        <td>${u.is_admin ? "管理员" : "用户"}</td>
+        <td>${u.is_admin ? "" : `<button class="link-btn" data-del-user="${esc(u.user_id)}">清数据</button>`}</td>
+      </tr>`).join("") + `</table>`;
+  } catch (e) {
+    $("#admin-list").innerHTML = `<div class="hint" style="padding:12px">加载失败:${esc(String(e.message || e))}</div>`;
+  }
+}
+async function adminDeleteUser(uid) {
+  await sbApi("/rest/v1/rpc/admin_delete_user_data", { method: "POST", body: JSON.stringify({ target: uid }) });
+  openAdminModal();
+}
+
 /* ---------- 视图切换 ---------- */
 let currentView = "study";
 function switchView(v) {
@@ -296,6 +554,27 @@ document.addEventListener("click", e => {
   if (t.id === "btn-close-drawer" || t.id === "mask") return closeDrawer();
   if (t.id === "btn-close-detail") return closeDetail();
   if (t.id === "detail-modal") return closeDetail();
+  if (t.id === "btn-close-auth" || t.id === "auth-modal") return closeAuthModal();
+  if (t.id === "auth-switch") return switchAuthMode(t.dataset.mode);
+  if (t.id === "btn-do-login") return submitAuth("login");
+  if (t.id === "btn-do-signup") return submitAuth("signup");
+  if (t.id === "btn-close-admin" || t.id === "admin-modal") return $("#admin-modal").classList.add("hidden");
+  if (t.dataset.delUser) {
+    if (confirm("确定删除该用户的全部云端数据?此操作不可恢复。")) adminDeleteUser(t.dataset.delUser);
+    return;
+  }
+  if (t.id === "btn-user") {
+    if (!auth.session) return openAuthModal("login");
+    $("#user-menu").classList.toggle("hidden");
+    return;
+  }
+  if (t.id === "menu-login") return openAuthModal("login");
+  if (t.id === "menu-admin") return openAdminModal();
+  if (t.id === "menu-logout") {
+    if (confirm("退出登录?本设备的学习数据会保留,下次登录可继续同步。")) doLogout();
+    $("#user-menu").classList.add("hidden");
+    return;
+  }
   if (t.classList.contains("book-item")) return selectBook(t.dataset.id), closeDrawer();
   if (t.closest("#book-title")) return openDrawer();
   if (t.classList.contains("phone-btn")) {
@@ -341,6 +620,10 @@ document.addEventListener("click", e => {
     if (!book) return;
     if (!confirm(`确定重置《${bookMeta.t}》的学习进度吗?`)) return;
     store.del(pkey(book.id));
+    if (auth.session) {
+      sbApi("/rest/v1/user_progress?user_id=eq." + auth.session.user.id + "&book_id=eq." + book.id,
+        { method: "DELETE", headers: { "Prefer": "return=minimal" } }).catch(() => {});
+    }
     tempSession = null;
     order = shuffle([...book.words.keys()]);
     cur = 0; known = new Set(); unknown = new Set();
@@ -360,9 +643,16 @@ document.addEventListener("click", e => {
     return;
   }
 });
+/* 点击菜单外部关闭 */
+document.addEventListener("click", e => {
+  if (!e.target.closest("#user-area")) $("#user-menu").classList.add("hidden");
+}, true);
 $$("#tabs button").forEach(b => b.addEventListener("click", () => switchView(b.dataset.view)));
 $("#book-filter").addEventListener("input", e => renderBookList(e.target.value));
 $("#search-input").addEventListener("input", doSearch);
+$("#auth-pass").addEventListener("keydown", e => {
+  if (e.key === "Enter") submitAuth($("#btn-do-signup").classList.contains("hidden") ? "login" : "signup");
+});
 $("#opt-shuffle").addEventListener("change", e => {
   if (e.target.checked) shuffle(order);
   cur = 0; saveProgress(); renderStudy();
@@ -378,7 +668,7 @@ $("#opt-unknown-only").addEventListener("change", e => {
 });
 document.addEventListener("keydown", e => {
   if (currentView !== "study" || !$("#card") || $("#card").classList.contains("hidden")) {
-    if (e.key === "Escape") { closeDetail(); closeDrawer(); }
+    if (e.key === "Escape") { closeDetail(); closeDrawer(); closeAuthModal(); $("#admin-modal").classList.add("hidden"); }
     return;
   }
   if (e.key === " ") { e.preventDefault(); $("#card").click(); }
@@ -396,6 +686,14 @@ window.addEventListener("beforeunload", saveProgress);
 (async function init() {
   updateStarCount();
   await loadManifest();
+  /* 恢复登录态 → 云端合并 → 再选书,保证云端进度先落地 */
+  const saved = store.get("ydict.session", null);
+  if (saved && saved.access_token) {
+    auth.session = saved;
+    try { await loadProfile(); } catch { /* token 可能过期,拉取时再刷新 */ }
+  }
+  renderAuthUI();
+  if (auth.session) await pullMerge();
   const m = location.hash.match(/book=([A-Za-z0-9_-]+)/);
   const last = store.get("ydict.lastBook", null);
   const target = (m && m[1]) || last;
