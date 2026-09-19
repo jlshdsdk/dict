@@ -11,8 +11,8 @@ ROOT = r"D:\dict"
 BOOK_DIR = os.path.join(ROOT, "book")
 OUT = os.path.join(ROOT, "data")  # 网站文件已移到仓库根目录(GitHub Pages 从根部署)
 
-# 只保留大学及以后阶段的词书(用户指定:排除小学/初中/高中/四级)
-KEEP_GROUPS = {"六级", "考研", "专四", "专八", "雅思", "托福", "GRE", "SAT", "GMAT", "BEC"}
+# 只保留六级/考研/雅思/托福(用户指定:其余阶段与考试类型全部排除)
+KEEP_GROUPS = {"六级", "考研", "雅思", "托福"}
 OUT_BOOKS = os.path.join(OUT, "books")
 os.makedirs(OUT_BOOKS, exist_ok=True)
 
